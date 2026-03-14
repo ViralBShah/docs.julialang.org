@@ -251,6 +251,21 @@ function commit()
         cp(from, file; force = true)
     end
 
+    # Clean up DEV PDFs that now have a corresponding release PDF.
+    # e.g. when julia-1.12.6.pdf is built, remove julia-1.12.6-DEV.pdf
+    for file in readdir(".")
+        m = match(r"^julia-(.+)-DEV\.pdf$", file)
+        m === nothing && continue
+        release_pdf = "julia-$(m.captures[1]).pdf"
+        if isfile(release_pdf)
+            @info "Removing obsolete DEV PDF" file release_pdf
+            rm(file)
+            # also remove the commit marker if present
+            commitfile = replace(file, ".pdf" => ".commit")
+            isfile(commitfile) && rm(commitfile)
+        end
+    end
+
     mktemp() do keyfile, iokey; mktemp() do sshconfig, iossh
         # Set up keyfile
         write(iokey, base64decode(get(ENV, "DOCUMENTER_KEY_PDF", "")))
@@ -272,8 +287,11 @@ function commit()
         run(`git config user.email "documenter@juliadocs.github.io"`)
         run(`git remote set-url origin git@github.com:JuliaLang/docs.julialang.org.git`)
         run(`git config core.sshCommand "ssh -F $(sshconfig)"`)
-        # Committing all .pdf and .commit files
-        run(`git add '*.pdf' '*.commit'`)
+        # Stage all .pdf and .commit files
+        for ext in ("pdf", "commit")
+            files = filter(f -> endswith(f, ".$ext"), readdir("."))
+            isempty(files) || run(`git add $files`)
+        end
         run(`git commit --amend --date=now -m "PDF versions of Julia's manual."`)
         # Push
         run(`git push -f origin assets`)
